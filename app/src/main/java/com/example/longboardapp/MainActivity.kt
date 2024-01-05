@@ -1,6 +1,9 @@
 package com.example.longboardapp
 
 import Message
+import Settings
+import Speed
+import SpeedFormat
 import Target
 import Values
 import android.icu.text.DecimalFormat
@@ -20,16 +23,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -39,16 +49,25 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.core.math.MathUtils.clamp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.longboardapp.ui.theme.LongboardAppTheme
 import encodeMessage
 import okhttp3.Request
 import okhttp3.WebSocketListener
+import java.lang.NumberFormatException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.round
+import kotlin.reflect.KMutableProperty
+import kotlin.reflect.KProperty
+import kotlin.reflect.KProperty1
+import kotlin.reflect.full.memberProperties
 
 fun createRequest(): Request {
     val websocketURL = "ws://192.168.0.27:8765"
@@ -77,10 +96,10 @@ class MainActivity : ComponentActivity() {
                                 offsetY = 0f
                                 val message = encodeMessage(
                                     Message(
-                                        id = "setTarget",
-                                        fields = Target(RPMToERPM(MPHToRPM(0f)).toInt())
+                                        id = MessageID.SET_TARGET,
+                                        fields = Target(Speed(0))
                                     )
-                                ) ?: "Hello World!"
+                                )
                                 viewModel.webSocket?.send(message)
                             }) { change, dragAmount ->
                                 change.consume()
@@ -88,13 +107,18 @@ class MainActivity : ComponentActivity() {
                                 offsetY += dragAmount.y
                                 val message = encodeMessage(
                                     Message(
-                                        id = "setTarget",
-                                        fields = Target(RPMToERPM(MPHToRPM(offsetY*30f/size.height)).toInt())
+                                        id = MessageID.SET_TARGET,
+                                        fields = Target(
+                                            Speed(
+                                                offsetY * 30f / size.height,
+                                                SpeedFormat.MPH
+                                            )
+                                        )
                                     )
-                                ) ?: "Hello World!"
+                                )
                                 viewModel.webSocket?.send(message)
                             }
-                    },
+                        },
                     color = MaterialTheme.colorScheme.background,
 
                 ) {
@@ -174,7 +198,79 @@ fun DataFillContent(text: String,
 }
 
 @Composable
+fun SettingBlock(value: String,
+                 onValueChange: (String) -> Unit,
+                 label: String,
+                 modifier: Modifier = Modifier
+                     .fillMaxWidth()
+                     .height(67.dp)
+                     .padding(4.dp)
+                     .wrapContentSize(Alignment.Center),
+                 keyboardOptions: KeyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)){
+    TextField(
+        value = value,
+        label = { Text(label) },
+        onValueChange = onValueChange,
+        modifier = modifier,
+        keyboardOptions = keyboardOptions,
+    )
+}
+
+@Composable
+fun SettingsDialog(onDismissRequest: () -> Unit, onConfirm: (Settings) -> Unit, settings: Settings) {
+    var ACC_RPM_PER_SECOND by remember { mutableStateOf(settings.ACC_RPM_PER_SECOND.toString()) }
+    var DEC_RPM_PER_SECOND by remember { mutableStateOf(settings.DEC_RPM_PER_SECOND.toString()) }
+    Dialog(
+        onDismissRequest = { onDismissRequest() },
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(500.dp)
+                .padding(4.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(modifier = Modifier.padding(4.dp)) {
+                SettingBlock(
+                    value = ACC_RPM_PER_SECOND,
+                    onValueChange = {
+                        ACC_RPM_PER_SECOND = it
+                    },
+                    label = "Max Acceleration"
+                )
+                SettingBlock(
+                    value = DEC_RPM_PER_SECOND,
+                    onValueChange = {
+                        DEC_RPM_PER_SECOND = it
+                    },
+                    label = "Max Deceleration"
+                )
+                TextButton(
+                    onClick = {
+                        try {
+                            onConfirm(
+                                Settings(
+                                    ACC_RPM_PER_SECOND.toFloat(),
+                                    DEC_RPM_PER_SECOND.toFloat()
+                                )
+                            )
+                        }catch(e: NumberFormatException){
+                            println("invalid entry")
+                        }
+                        onDismissRequest()
+                    }
+                ) {
+                    Text(text = "Confirm")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListener: WebSocketListener) {
+    var settings_open by remember { mutableStateOf(false) }
+
     val rpm_formatter: DecimalFormat = DecimalFormat.getInstance() as DecimalFormat
     rpm_formatter.minimumFractionDigits = 0
     rpm_formatter.maximumFractionDigits = 0
@@ -189,7 +285,7 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
     Column(modifier = Modifier.padding(16.dp, 4.dp)) {
         Column(modifier = Modifier
             .padding(0.dp, 2.dp)
-            .height(67.dp)) {
+            .height(134.dp)) {
             val buttonModifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -200,7 +296,6 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                         socketViewModel.webSocket?.close(1000, "Closed manually")
                         socketViewModel.updateValues1(Values())
                         socketViewModel.updateValues2(Values())
-                        socketViewModel.updateBatteryPercent(0f)
                     } else {
                         socketViewModel.webSocket = socketViewModel.okHttpClient.newWebSocket(
                             createRequest(),
@@ -213,17 +308,25 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
             ) {
                 Text(text = if (socketViewModel.status) "Disconnect" else "Connect")
             }
+            Button(
+                onClick = { settings_open = true },
+                modifier = buttonModifier,
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(text = "Settings")
+            }
         }
         Column(modifier = Modifier
             .padding(0.dp, 2.dp)
             .clip(shape = RoundedCornerShape(16.dp))
             .background(Color.LightGray)
         ) {
+            // BATTERY
             Row(modifier = Modifier.padding(0.dp)) {
                 val dataModifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                val percent = socketViewModel.batteryPercent
+                val percent = clamp(((socketViewModel.values1.charge?.percent ?: 0f) + (socketViewModel.values2.charge?.percent ?: 0f))/2f, 0f, 1f)
                 DataFillContent(
                     text = "Battery: ${battery_formatter.format(percent * 100)}%",
                     color = Color(
@@ -237,6 +340,34 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                     innerPaddingValues = PaddingValues(16.dp),
                 )
             }
+            // SPEED
+            Row(
+                modifier = Modifier.padding(0.dp)
+            ) {
+                val dataModifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                DataContent(
+                    text = "${rpm_formatter.format((abs(socketViewModel.values1.speed?.mph ?: 0f) + abs(socketViewModel.values2.speed?.mph ?: 0f)) / 2)} MPH",
+                    modifier = dataModifier,
+                    innerPaddingValues = PaddingValues(16.dp),
+                )
+            }
+            // DISTANCE
+            Row(
+                modifier = Modifier.padding(0.dp)
+            ) {
+                val dataModifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                DataContent(
+                    text = "${tach_formatter.format( ((socketViewModel.values1.distance_abs?.miles ?: 0f) + (socketViewModel.values2.distance_abs?.miles ?: 0f)) / 2)} Miles",
+                    modifier = dataModifier,
+                    shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 0.dp),
+                    innerPaddingValues = PaddingValues(16.dp),
+                )
+            }
+            // LABELS
             Row(modifier = Modifier.padding(0.dp)) {
                 val dataModifier = Modifier
                     .fillMaxWidth()
@@ -256,21 +387,23 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                     textAlign = TextAlign.Center
                 )
             }
+            // RPM
             Row(modifier = Modifier.padding(0.dp)) {
                 val dataModifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                 DataContent(
-                    text = "M1: ${rpm_formatter.format(abs(10 * round(0.1 * ERPMToRPM(socketViewModel.values1.rpm ?: 0f))))} RPM",
+                    text = "${rpm_formatter.format(abs(10 * round(0.1f * (socketViewModel.values1.speed?.rpm ?: 0f))))} RPM",
                     modifier = dataModifier,
                     innerPaddingValues = PaddingValues(16.dp),
                 )
                 DataContent(
-                    text = "M2: ${rpm_formatter.format(abs(10 * round(0.1 * ERPMToRPM(socketViewModel.values2.rpm ?: 0f))))} RPM",
+                    text = "${rpm_formatter.format(abs(10 * round(0.1 * (socketViewModel.values2.speed?.rpm ?: 0f))))} RPM",
                     modifier = dataModifier,
                     innerPaddingValues = PaddingValues(16.dp),
                 )
             }
+            // TEMPERATURE
             Row(
                 modifier = Modifier.padding(0.dp)
             ) {
@@ -278,18 +411,19 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                     .fillMaxWidth()
                     .weight(1f)
                 DataContent(
-                    text = "M1: ${battery_formatter.format(socketViewModel.values1.temp_fet ?: 0f)} °C",
+                    text = "${battery_formatter.format(socketViewModel.values1.temp_fet ?: 0f)} °C",
                     modifier = dataModifier,
                     shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 0.dp),
                     innerPaddingValues = PaddingValues(16.dp),
                 )
                 DataContent(
-                    text = "M2: ${battery_formatter.format(socketViewModel.values2.temp_fet ?: 0f)} °C",
+                    text = "${battery_formatter.format(socketViewModel.values2.temp_fet ?: 0f)} °C",
                     modifier = dataModifier,
                     shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 0.dp),
                     innerPaddingValues = PaddingValues(16.dp),
                 )
             }
+            // POWER
             Row(
                 modifier = Modifier.padding(0.dp)
             ) {
@@ -297,37 +431,41 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                     .fillMaxWidth()
                     .weight(1f)
                 DataContent(
-                    text = "M1: ${tach_formatter.format(ERevsToMiles( socketViewModel.values1.tachometer_abs ?: 0f))} Miles",
-                    modifier = dataModifier,
-                    shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 0.dp),
-                    innerPaddingValues = PaddingValues(16.dp),
-                )
-                DataContent(
-                    text = "M2: ${tach_formatter.format(ERevsToMiles( socketViewModel.values2.tachometer_abs ?: 0f))} Miles",
-                    modifier = dataModifier,
-                    shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 0.dp),
-                    innerPaddingValues = PaddingValues(16.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.padding(0.dp)
-            ) {
-                val dataModifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                DataContent(
-                    text = "M1: ${rpm_formatter.format(abs(RPMToMPH(ERPMToRPM(socketViewModel.values1.rpm ?: 0f))))} MPH",
+                    text = "${battery_formatter.format((socketViewModel.values1.charge?.volts ?: 0f) * abs(socketViewModel.values1.avg_motor_current ?: 0f))} Watts",
                     modifier = dataModifier,
                     shape = RoundedCornerShape(0.dp, 0.dp, 0.dp, 16.dp),
                     innerPaddingValues = PaddingValues(16.dp),
                 )
                 DataContent(
-                    text = "M2: ${rpm_formatter.format(abs(RPMToMPH(ERPMToRPM(socketViewModel.values2.rpm ?: 0f))))} MPH",
+                    text = "${battery_formatter.format((socketViewModel.values2.charge?.volts ?: 0f) * abs(socketViewModel.values2.avg_motor_current ?: 0f))} Watts",
                     modifier = dataModifier,
                     shape = RoundedCornerShape(0.dp, 0.dp, 16.dp, 0.dp),
                     innerPaddingValues = PaddingValues(16.dp),
                 )
             }
         }
+    }
+    if(settings_open){
+        SettingsDialog(
+            onDismissRequest =
+                {
+                    settings_open = false
+                },
+            onConfirm =
+            {
+                socketViewModel.updateSettings(it)
+                if(socketViewModel.status) {
+                    socketViewModel.webSocket?.send(
+                        encodeMessage(
+                            Message(
+                                MessageID.SET_SETTINGS,
+                                socketViewModel.settings
+                            )
+                        )
+                    )
+                }
+            },
+            settings = socketViewModel.settings
+        )
     }
 }

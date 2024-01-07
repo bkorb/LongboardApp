@@ -17,18 +17,18 @@ import androidx.compose.ui.unit.dp
 fun SettingBlock(value: String,
                  onValueChange: (String) -> Unit,
                  label: String,
-                 modifier: Modifier = Modifier
-                     .fillMaxWidth()
-                     .height(67.dp)
-                     .padding(4.dp)
-                     .wrapContentSize(Alignment.Center),
+                 modifier: Modifier = Modifier,
                  keyboardOptions: KeyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
 ){
     TextField(
         value = value,
         label = { Text(label) },
         onValueChange = onValueChange,
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(67.dp)
+            .padding(4.dp)
+            .wrapContentSize(Alignment.Center),
         keyboardOptions = keyboardOptions,
     )
 }

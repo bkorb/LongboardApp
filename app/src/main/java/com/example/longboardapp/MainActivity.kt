@@ -69,9 +69,14 @@ class MainActivity : ComponentActivity() {
         viewModel.viewModelScope.launch(Dispatchers.IO) {
             while(true){
                 if(!viewModel.status){
-                    val conn = InetAddress.getByName("longboard.local").isReachable(5000)
-                    Log.println(Log.DEBUG, "PINGER", conn.toString())
-                    viewModel.updateConnectable(conn)
+                    try {
+                        val conn = InetAddress.getByName("longboard.local").isReachable(5000)
+                        Log.println(Log.DEBUG, "PINGER", conn.toString())
+                        viewModel.updateConnectable(conn)
+                    }catch (e: Exception){
+                        viewModel.updateConnectable(false)
+                        Log.println(Log.DEBUG, "PINGER", "Failed to Ping")
+                    }
                 }
                 Thread.sleep(2000)
             }

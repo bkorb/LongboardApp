@@ -1,13 +1,13 @@
 package com.example.longboardapp
 
-import Message
-import MessageID
+import GetSettings
+import GetValues
+import SetSettings
 import Settings
 import Values
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.math.MathUtils.clamp
 import androidx.lifecycle.ViewModel
 import encodeMessage
 import okhttp3.OkHttpClient
@@ -22,24 +22,37 @@ class WebSocketListener(
     override fun onOpen(webSocket: WebSocket, response: Response) {
         super.onOpen(webSocket, response)
         viewModel.updateStatus(true)
-        webSocket.send(encodeMessage(Message(MessageID.GET_SETTINGS)))
-        //webSocket.send("Android Device Connected")
+        webSocket.send(encodeMessage(GetSettings()))
         println("onOpen:")
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
         super.onMessage(webSocket, text)
         try {
-            val msg = (parseMessage(text))
-            if (msg.id == MessageID.COMM_GET_VALUES) {
-                val can = (msg.fields as Values).app_controller_id ?: 0
-                if (can == 57) {
-                    viewModel.updateValues1(msg.fields)
-                } else if (can == 124) {
-                    viewModel.updateValues2(msg.fields)
+            when(val msg = (parseMessage(text))){
+                is GetValues -> {
+                    msg.fields?.let {
+                        val can = it.app_controller_id
+                        if (can == 57) {
+                            viewModel.updateValues1(it)
+                        } else if (can == 124) {
+                            viewModel.updateValues2(it)
+                        }
+                    }
                 }
-            }else if (msg.id == MessageID.GET_SETTINGS) {
-                viewModel.updateSettings(msg.fields as Settings)
+                is GetSettings -> {
+                    msg.fields?.let {
+                        viewModel.updateSettings(it)
+                    }
+                }
+                is SetSettings -> {
+                    msg.fields.let {
+                        viewModel.updateSettings(it)
+                    }
+                }
+                else -> {
+                    throw IllegalArgumentException("Message Type Not Used: ${msg.javaClass.name}")
+                }
             }
         }catch (e: IllegalArgumentException){
             println(e)
@@ -94,6 +107,7 @@ class SocketViewModel : ViewModel() {
         if(!status){
             values1 = Values()
             values2 = Values()
+            settings = Settings()
         }
     }
 

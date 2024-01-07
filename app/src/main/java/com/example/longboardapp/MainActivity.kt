@@ -7,6 +7,7 @@ import SpeedFormat
 import Values
 import android.icu.text.DecimalFormat
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -37,14 +38,18 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.math.MathUtils.clamp
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.longboardapp.components.DataContent
 import com.example.longboardapp.components.DataFillContent
 import com.example.longboardapp.components.SettingsDialog
 import com.example.longboardapp.ui.theme.LongboardAppTheme
 import encodeMessage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.Request
 import okhttp3.WebSocketListener
+import java.net.InetAddress
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -61,6 +66,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val viewModel: SocketViewModel by viewModels()
         webSocketListener = WebSocketListener(viewModel)
+        viewModel.viewModelScope.launch(Dispatchers.IO) {
+            while(true){
+                if(!viewModel.status){
+                    val conn = InetAddress.getByName("longboard.local").isReachable(5000)
+                    Log.println(Log.DEBUG, "PINGER", conn.toString())
+                    viewModel.updateConnectable(conn)
+                }
+                Thread.sleep(2000)
+            }
+        }
         setContent {
             var offsetX by remember { mutableStateOf(0f) }
             var offsetY by remember { mutableStateOf(0f) }
@@ -139,6 +154,7 @@ fun SocketContent(socketViewModel: SocketViewModel = viewModel(), webSocketListe
                         )
                     }
                 },
+                enabled = socketViewModel.status || socketViewModel.connectable,
                 modifier = buttonModifier,
                 shape = RoundedCornerShape(16.dp)
             ) {

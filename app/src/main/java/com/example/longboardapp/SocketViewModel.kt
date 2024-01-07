@@ -15,6 +15,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import parseMessage
 import okhttp3.WebSocketListener
+import java.net.InetAddress
 
 class WebSocketListener(
     private val viewModel: SocketViewModel
@@ -81,6 +82,9 @@ class SocketViewModel : ViewModel() {
     var values1 by mutableStateOf(Values())
         private set
 
+    var connectable by mutableStateOf(false)
+        private set
+
     var values2 by mutableStateOf(Values())
         private set
 
@@ -98,6 +102,10 @@ class SocketViewModel : ViewModel() {
         values2 = values
     }
 
+    fun updateConnectable(_connectable: Boolean){
+        connectable = _connectable
+    }
+
     fun updateSettings(_settings: Settings){
         settings = _settings
     }
@@ -110,6 +118,7 @@ class SocketViewModel : ViewModel() {
             settings = Settings()
         }
     }
+
 
     val okHttpClient = OkHttpClient()
     var webSocket: WebSocket? = null
